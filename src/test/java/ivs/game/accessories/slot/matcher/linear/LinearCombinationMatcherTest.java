@@ -195,10 +195,9 @@ class LinearCombinationMatcherTest {
     }
 
     @Test
-    void matchAcceptsConfiguredWildSubstitutes() {
-        // Input: the selected top line contains a configured wild substitute
-        // in the first position.
-        // Expected: the wild substitute completes the AAAAA combination.
+    void matchDoesNotAcceptWildSubstituteAtStart() {
+        // Input: the selected line starts with WILD followed by A symbols.
+        // Expected: WILD cannot replace the first item of an A combination.
         /*
          *          column
          *          0     1     2     3     4
@@ -214,15 +213,31 @@ class LinearCombinationMatcherTest {
                 ALL_POLICY
         ).match();
 
-        assertEquals(3, matches.size());
+        assertEquals(List.of(), matches);
+    }
 
-        assertEquals(AAA, matches.get(0).combination());
-        assertEquals(AAAA, matches.get(1).combination());
-        assertEquals(AAAAA, matches.get(2).combination());
+    @Test
+    void matchDoesNotAcceptLineOfWildSubstitutes() {
+        // Input: every position on the selected line contains WILD.
+        // Expected: no A combination matches because the first item is WILD.
+        /*
+         *          column
+         *          0     1     2     3     4
+         * row 0 | WILD| WILD| WILD| WILD| WILD|  <- selected line
+         * row 1 |  B  |  B  |  B  |  B  |  B  |
+         * row 2 |  C  |  C  |  C  |  C  |  C  |
+         */
+        var field = fieldWithTopRow(List.of(WILD, WILD, WILD, WILD, WILD));
 
-        assertEquals(3, matches.get(0).length());
-        assertEquals(4, matches.get(1).length());
-        assertEquals(5, matches.get(2).length());
+        var matches = new LinearCombinationMatcher<>(
+                field,
+                LINES,
+                COMBINATIONS,
+                WILD_SUBSTITUTES,
+                ALL_POLICY
+        ).match();
+
+        assertEquals(List.of(), matches);
     }
 
     @Test
@@ -384,9 +399,9 @@ class LinearCombinationMatcherTest {
     }
 
     @Test
-    void matchAcceptsMultipleWildSubstitutes() {
-        // Input: the selected line contains two configured wild substitutes.
-        // Expected: both wild substitutes complete AAAAA.
+    void matchAcceptsTwoWildSubstitutesInThreeItemCombination() {
+        // Input: the selected line starts with A, WILD, WILD.
+        // Expected: both wild substitutes complete AAA.
         /*
          *          column
          *          0     1     2     3     4
@@ -397,30 +412,58 @@ class LinearCombinationMatcherTest {
         var matches = new LinearCombinationMatcher<>(
                 FIELD_WITH_MULTIPLE_WILDS,
                 LINES,
-                List.of(AAAAA),
+                List.of(AAA),
                 WILD_SUBSTITUTES,
                 ALL_POLICY
         ).match();
 
-        assertEquals(1, matches.size());
+        assertEquals(List.of(AAA), matches.stream()
+                .map(LinearCombinationMatch::combination)
+                .toList());
+    }
+
+    @Test
+    void matchAcceptsWildSubstituteAtEndOfThreeItemCombination() {
+        // Input: the selected line starts with A, A, WILD.
+        // Expected: the wild substitute completes AAA.
+        /*
+         *          column
+         *          0     1     2     3     4
+         * row 0 |  A  |  A  | WILD|  A  |  A  |  <- selected line
+         * row 1 |  B  |  B  |  B  |  B  |  B  |
+         * row 2 |  C  |  C  |  C  |  C  |  C  |
+         */
+        var field = fieldWithTopRow(List.of(A, A, WILD, A, A));
+
+        var matches = new LinearCombinationMatcher<>(
+                field,
+                LINES,
+                List.of(AAA),
+                WILD_SUBSTITUTES,
+                ALL_POLICY
+        ).match();
+
+        assertEquals(List.of(AAA), matches.stream()
+                .map(LinearCombinationMatch::combination)
+                .toList());
     }
 
     @Test
     void matchDoesNotUseWildSubstituteWhenItIsNotConfigured() {
-        // Input: the selected line contains WILD, but no wild substitutes are
-        // configured.
-        // Expected: no A combination matches.
+        // Input: the selected line contains WILD after A, but no wild
+        // substitutes are configured.
+        // Expected: WILD cannot replace the second A in AAAAA.
         /*
          *          column
          *          0     1     2     3     4
-         * row 0 | WILD|  A  |  A  |  A  |  A  |  <- selected line
+         * row 0 |  A  | WILD|  A  |  A  |  A  |  <- selected line
          * row 1 |  B  |  B  |  B  |  B  |  B  |
          * row 2 |  C  |  C  |  C  |  C  |  C  |
          */
         var matches = new LinearCombinationMatcher<>(
-                FIELD_WITH_WILD,
+                FIELD_WITH_WILD_IN_MIDDLE,
                 LINES,
-                COMBINATIONS,
+                List.of(AAAAA),
                 EMPTY_WILD_SUBSTITUTES,
                 ALL_POLICY
         ).match();

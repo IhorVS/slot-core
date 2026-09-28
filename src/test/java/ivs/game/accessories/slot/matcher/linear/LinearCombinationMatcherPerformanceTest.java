@@ -46,9 +46,9 @@ class LinearCombinationMatcherPerformanceTest {
                 ))
         );
 
-        // Every position matches every configured combination through WLD.
-        SlotField<StandardReelItem> wildField = new StandardSlotField<>(
-                Collections.nCopies(5, Collections.nCopies(3, StandardReelItem.WLD))
+        // Every line contains AAAAA and matches AAA, AAAA, and AAAAA.
+        SlotField<StandardReelItem> allAField = new StandardSlotField<>(
+                Collections.nCopies(5, Collections.nCopies(3, StandardReelItem.A))
         );
 
         var regularMatcher = new LinearCombinationMatcher<>(
@@ -58,19 +58,19 @@ class LinearCombinationMatcherPerformanceTest {
                 Set.of(StandardReelItem.WLD),
                 new AllCombinationMatchPolicy<>()
         );
-        var wildMatcher = new LinearCombinationMatcher<>(
-                wildField,
+        var allAMatcher = new LinearCombinationMatcher<>(
+                allAField,
                 lines,
                 combinations,
                 Set.of(StandardReelItem.WLD),
                 new AllCombinationMatchPolicy<>()
         );
 
-        // 40 lines multiplied by 78 combinations.
-        assertEquals(3_120, wildMatcher.match().size());
+        // 40 lines multiplied by three matching A combinations.
+        assertEquals(120, allAMatcher.match().size());
 
         measure("Regular field", regularMatcher);
-        measure("All wilds", wildMatcher);
+        measure("All A", allAMatcher);
     }
 
     private static void measure(

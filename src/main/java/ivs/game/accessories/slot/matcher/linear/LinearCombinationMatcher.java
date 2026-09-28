@@ -19,8 +19,9 @@ import java.util.Set;
  *
  * <p>Each line is checked from left to right, starting at its first position.
  * Every configured combination is checked independently against the
- * corresponding prefix of the line. A field item matches a combination item
- * when it is equal to that item or is one of the configured wild substitutes.</p>
+ * corresponding prefix of the line. The first field item must match the
+ * first combination item directly. At later positions, a field item matches
+ * when it is equal to the combination item or is a configured wild substitute.</p>
  *
  * <p>The matcher first detects all matching combinations. The configured
  * policy then determines which matches are returned.</p>
@@ -41,6 +42,7 @@ public final class LinearCombinationMatcher<I extends ReelItem>
      * @param lines           the selected lines to inspect
      * @param combinations    the combinations to detect
      * @param wildSubstitutes the field items that substitute combination items
+     *                        after the first position
      * @param policy          the policy applied to detected combinations
      * @throws NullPointerException     if an argument or its element is null
      * @throws IllegalArgumentException if {@code lines} or
@@ -113,6 +115,10 @@ public final class LinearCombinationMatcher<I extends ReelItem>
                     line.positions().get(index).row()
             );
             I requiredItem = combination.getItems().get(index);
+
+            if (index == 0 && wildSubstitutes.contains(actualItem)) {
+                return false;
+            }
             if (!actualItem.equals(requiredItem) && !wildSubstitutes.contains(actualItem)) {
                 return false;
             }
