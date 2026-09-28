@@ -35,7 +35,7 @@ public class StandardReelBank<I extends ReelItem> implements ReelBank<I> {
         Validate.isTrue(!reels.isEmpty(), "Reels list must contain at least one reel");
         Validate.noNullElements(reels, "Null reels not allowed");
 
-        this.reels = List.copyOf(reels);  // TODO do we need copy list of reels?
+        this.reels = List.copyOf(reels);
     }
 
     /**

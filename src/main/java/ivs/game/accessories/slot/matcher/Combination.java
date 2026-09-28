@@ -27,7 +27,7 @@ import java.util.List;
 @EqualsAndHashCode
 @ToString
 @Getter
-public class Combination<I extends ReelItem> {  // TODO may be interface need
+public class Combination<I extends ReelItem> {
     private final int id;
     private final String groupId;
     private final List<I> items;
