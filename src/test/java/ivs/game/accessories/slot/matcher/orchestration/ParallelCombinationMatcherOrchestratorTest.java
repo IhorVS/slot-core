@@ -5,17 +5,21 @@ import ivs.game.accessories.slot.matcher.CombinationMatcher;
 import ivs.game.accessories.slot.reel.ReelItem;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,25 +71,48 @@ class ParallelCombinationMatcherOrchestratorTest {
     }
 
     @Test
-    void matchRunsMatchersAndReturnsTheirResultsInSuppliedOrder() {
+    void matchSubmitsAllMatchersBeforeCollectingResultsAndPreservesOrder() throws Exception {
         when(firstMatcher.match()).thenReturn(List.of(firstMatch));
         when(secondMatcher.match()).thenReturn(List.of(secondMatch));
         when(thirdMatcher.match()).thenReturn(List.of(thirdMatch));
 
-        List<CombinationMatcher<
-                ReelItem, ? extends CombinationMatch<ReelItem>>> matchers =
-                List.of(firstMatcher, secondMatcher, thirdMatcher);
+        BlockingQueue<Runnable> tasks = new LinkedBlockingQueue<>();
+        var orchestrator = new ParallelCombinationMatcherOrchestrator<>(tasks::add);
 
-        var orchestrator = new ParallelCombinationMatcherOrchestrator<>(
-                executor
+        var result = CompletableFuture.supplyAsync(() -> orchestrator.match(
+                List.of(firstMatcher, secondMatcher, thirdMatcher)
+        ));
+
+        Runnable firstTask = tasks.poll(2, TimeUnit.SECONDS);
+        Runnable secondTask = tasks.poll(2, TimeUnit.SECONDS);
+        Runnable thirdTask = tasks.poll(2, TimeUnit.SECONDS);
+
+        assertNotNull(firstTask);
+        assertNotNull(secondTask);
+        assertNotNull(thirdTask);
+
+        thirdTask.run();
+        secondTask.run();
+        firstTask.run();
+
+        assertEquals(
+                List.of(firstMatch, secondMatch, thirdMatch),
+                result.get(2, TimeUnit.SECONDS)
         );
-        var matches = orchestrator.match(matchers);
+    }
 
-        assertEquals(List.of(firstMatch, secondMatch, thirdMatch), matches);
+    @Test
+    void matchPropagatesMatcherException() {
+        RuntimeException failure = new IllegalStateException("Matcher failed");
+        when(firstMatcher.match()).thenThrow(failure);
 
-        InOrder inOrder = inOrder(firstMatcher, secondMatcher, thirdMatcher);
-        inOrder.verify(firstMatcher).match();
-        inOrder.verify(secondMatcher).match();
-        inOrder.verify(thirdMatcher).match();
+        var orchestrator = new ParallelCombinationMatcherOrchestrator<>(executor);
+
+        RuntimeException actual = assertThrows(
+                RuntimeException.class,
+                () -> orchestrator.match(List.of(firstMatcher))
+        );
+
+        assertSame(failure, actual);
     }
 }

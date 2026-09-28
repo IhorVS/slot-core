@@ -9,6 +9,7 @@ import org.apache.commons.lang3.Validate;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 
 /**
@@ -28,22 +29,10 @@ public final class ParallelCombinationMatcherOrchestrator<
         > implements CombinationMatcherOrchestrator<I> {
     private final Executor executor;
 
-    /**
-     * Creates an orchestrator using the supplied executor.
-     *
-     * @param executor the executor used to run matchers
-     * @throws NullPointerException if {@code executor} is null
-     */
     public ParallelCombinationMatcherOrchestrator(@NonNull Executor executor) {
         this.executor = executor;
     }
 
-    /**
-     * {@inheritDoc}
-     *
-     * <p>Each matcher is submitted to the configured executor. The returned
-     * list is unmodifiable.</p>
-     */
     @Override
     public List<CombinationMatch<I>> match(
             @NonNull List<? extends CombinationMatcher<
@@ -61,7 +50,24 @@ public final class ParallelCombinationMatcherOrchestrator<
                 .toList();
 
         return futures.stream()
-                .<CombinationMatch<I>>flatMap(future -> future.join().stream())
+                .<CombinationMatch<I>>flatMap(future -> getMatches(future).stream())
                 .toList();
+    }
+
+    private List<? extends CombinationMatch<I>> getMatches(
+            CompletableFuture<List<? extends CombinationMatch<I>>> future
+    ) {
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw exception;
+        }
     }
 }
