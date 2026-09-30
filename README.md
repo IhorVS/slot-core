@@ -7,8 +7,10 @@ or user interface.
 
 For a runnable example, see [slot-core-demo](https://github.com/IhorVS/slot-core-demo).
 
-The library provides components for assembling a slot. It does not yet provide
-a single class that performs an entire spin.
+The library provides both individual components and `StandardSlotEngine`, which
+coordinates a complete spin using a supplied configuration and matcher factory.
+Reel positions are supplied by the application; the engine does not generate
+random positions.
 
 ## Components
 
@@ -73,7 +75,10 @@ The `matcher.linear` package contains `FieldLine`,
 `LinearCombinationMatcher`, and `LinearCombinationMatch`.
 
 A linear matcher checks combinations from left to right along its configured
-lines. It can also accept a set of items that substitute required items.
+lines. It can also accept a set of items that substitute required items after
+the first position, including the last position. A line starting with a configured
+wild substitute does not match. For example, `A, WLD, WLD` can match `AAA`,
+but `WLD, A, A` cannot.
 
 ### Scatter matcher
 
@@ -95,7 +100,9 @@ The `matcher.orchestration` package provides two orchestrators:
 
 - `SequentialCombinationMatcherOrchestrator` invokes matchers in the order
   supplied and appends their results in that order.
-- `ParallelCombinationMatcherOrchestrator` runs matchers in parallel.
+- `ParallelCombinationMatcherOrchestrator` submits matchers to its supplied
+  executor and collects results in the supplied matcher order. Actual parallelism
+  depends on the executor; matcher execution order is not guaranteed.
 
 Use the sequential orchestrator when matcher execution order matters.
 
@@ -109,7 +116,40 @@ combinations. Its result is a map keyed by combination. If the same
 combination matches more than once, its prize identifiers appear once in
 that map. The original match list still contains the individual matches.
 
-## Assemble a slot step by step
+### Engine
+
+The `ivs.game.accessories.slot.engine` package provides:
+
+- `SlotEngineConfig`: a ready-made reel bank, lines, wild substitutes,
+  combinations, and string prize identifiers by combination.
+- `CombinationMatcherFactory`: creates matchers from the configuration and the
+  field generated for each spin. The factory chooses combination subsets,
+  matcher types, and match policies.
+- `StandardSlotEngine`: validates the configuration, builds the field, calls the
+  factory, runs its matchers sequentially in list order, and resolves prizes.
+- `SpinResult`: reel positions as an `int[]`, the generated field, individual
+  matches, and prize identifiers by combination.
+
+Reels may have different visible window sizes. The engine requires exactly one
+valid physical position per reel and does not generate random positions.
+
+The configuration retains its components and collections by reference. Keep them
+unchanged while the engine is in use. Configuration validation checks unique line
+and combination IDs, unique ordered combination item sequences, valid line
+columns, and prize references and identifiers. Line rows are checked against the
+field generated for each spin. Empty configuration collections are allowed;
+the factory determines which data its matchers require.
+
+The factory must return a non-null list without null elements. An empty list is
+allowed and produces no matches or prizes. A factory contract violation causes
+`IllegalStateException` before any matcher runs. Exceptions thrown by the factory
+or matchers propagate to the caller.
+
+Results returned by the engine contain unmodifiable match and prize collections,
+including nested prize sets. `getReelPositions()` returns a fresh array copy.
+Repeated matches share one prize entry without being removed from the match list.
+
+## Assemble a slot from individual components
 
 The following example uses three reels and three lines. All item
 identifiers are `StandardReelItem` names. The shown Java fragments belong to
@@ -329,3 +369,81 @@ result or display it. To associate prizes with each individual match, look up
 For subsequent spins, reuse the configured reel bank, lines, combinations,
 field builder, and prize resolver. Build a new field and create matchers for
 that field before invoking the orchestrator again.
+
+
+## Perform spins with the standard engine
+
+Reuse the reel bank, lines, and combinations mapped in steps 1–3 above.
+Instead of building fields, creating matchers, and resolving prizes manually,
+put the static data into an engine configuration:
+
+```java
+SlotEngineConfig<StandardReelItem> config = new SlotEngineConfig<>(
+        reelBank,
+        lines,
+        Set.of(StandardReelItem.WLD),
+        List.of(combinations.get(0), combinations.get(1)),
+        Map.of(
+                combinations.get(0), Set.of("C10"),
+                combinations.get(1), Set.of("C15")
+        )
+);
+```
+
+Provide a factory that selects combination groups and creates matchers for the
+supplied field. In this example, group `A` is linear and group `SCT` is scatter.
+These are application choices, not group names reserved by the library.
+
+```java
+CombinationMatcherFactory<StandardReelItem> matcherFactory = (engineConfig, spinField) -> {
+    List<Combination<StandardReelItem>> linear = engineConfig.getCombinations().stream()
+            .filter(combination -> combination.getGroupId().equals("A"))
+            .toList();
+
+    List<Combination<StandardReelItem>> scatters = engineConfig.getCombinations().stream()
+            .filter(combination -> combination.getGroupId().equals("SCT"))
+            .toList();
+
+    var linearMatcher = new LinearCombinationMatcher<>(
+            spinField,
+            engineConfig.getLines(),
+            linear,
+            engineConfig.getWildSubstitutes(),
+            new LongestCombinationMatchPolicy<>()
+    );
+
+    var scatterMatcher = new ScatterCombinationMatcher<>(
+            spinField,
+            scatters,
+            new LongestCombinationMatchPolicy<>()
+    );
+
+    return List.of(linearMatcher, scatterMatcher);
+};
+
+StandardSlotEngine<StandardReelItem> engine = new StandardSlotEngine<>(config, matcherFactory);
+```
+
+This factory creates one linear matcher for all three lines, followed by one
+scatter matcher. The example configuration contains both combination groups;
+a factory supporting optional groups should omit matchers whose required data
+is absent.
+
+Perform a spin with explicitly supplied positions:
+
+```java
+SpinResult<StandardReelItem> result = engine.spin(0, 0, 0);
+
+int[] reelPositions = result.getReelPositions();
+SlotField<StandardReelItem> spinField = result.getField();
+List<CombinationMatch<StandardReelItem>> spinMatches = result.getMatches();
+Map<Combination<StandardReelItem>, Set<String>> spinPrizes = result.getPrizesByCombination();
+```
+
+The result contains the same field, linear match, scatter match, and prizes shown
+in the diagrams above. For prizes associated with an individual match, use
+`spinPrizes.getOrDefault(match.combination(), Set.of())`.
+
+Reuse the engine for subsequent spins. It builds a new field and calls the
+factory on every invocation. Random position selection, user interaction, and
+prize interpretation belong to the application.
